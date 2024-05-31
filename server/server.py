@@ -2,12 +2,15 @@ from flask import Flask, request, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from flask_marshmallow import Marshmallow
 from marshmallow_sqlalchemy import SQLAlchemyAutoSchema
+import json
+import redis
 import pika
 
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://yourusername:yourpassword@localhost/yourdatabase'
 db = SQLAlchemy(app)
 ma = Marshmallow(app)
+r = redis.Redis(host='redis', port=6379, db=0)
 
 class Job(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -46,31 +49,46 @@ def add_job():
 
     channel.basic_publish(exchange='', routing_key='job_queue', body=str(new_job.id))
     print(" [x] Sent 'Job ID: %s'" % new_job.id)
+    r.delete('jobs')  # Invalidate the cache
     connection.close()
 
     return jsonify(job_schema.dump(new_job))
 
 @app.route('/job', methods=['GET'])
 def get_jobs():
-    all_jobs = Job.query.all()
-    result = jobs_schema.dump(all_jobs)
-    return jsonify(result)
+    jobs = r.get('jobs')
+    if jobs is None:
+        all_jobs = Job.query.all()
+        jobs = jobs_schema.dumps(all_jobs)
+        r.set('jobs', jobs)
+    return jsonify(json.loads(jobs))
 
 @app.route('/job/<id>', methods=['GET'])
 def get_job(id):
-    job = Job.query.get(id)
-    return jsonify(job_schema.dump(job))
+    job = r.get(f'job:{id}')
+    if job is None:
+        job = Job.query.get(id)
+        job = job_schema.dumps(job)
+        r.set(f'job:{id}', job)
+    return jsonify(json.loads(job))
 
 @app.route('/result', methods=['GET'])
 def get_results():
-    all_results = Result.query.all()
-    result = results_schema.dump(all_results)
-    return jsonify(result)
+    results = r.get('results')
+    if results is None:
+        all_results = Result.query.all()
+        results = results_schema.dumps(all_results)
+        r.set('results', results)
+    return jsonify(json.loads(results))
 
 @app.route('/result/<id>', methods=['GET'])
 def get_result(id):
-    result = Result.query.get(id)
-    return jsonify(result_schema.dump(result))
+    result = r.get(f'result:{id}')
+    if result is None:
+        result = Result.query.get(id)
+        result = result_schema.dumps(result)
+        r.set(f'result:{id}', result)
+    return jsonify(json.loads(result))
 
 if __name__ == '__main__':
     app.run(debug=True)

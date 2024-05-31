@@ -25,3 +25,15 @@ services:
     depends_on:
       - db
       - rabbitmq
+  daemon:
+    build: ./daemon
+    command: python daemon.py
+    volumes:
+      - ./daemon:/daemon
+    depends_on:
+      - db
+      - rabbitmq
+  cache:
+    image: redis:latest
+    ports:
+      - 6379:6379
