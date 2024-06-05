@@ -33,6 +33,7 @@ services:
     depends_on:
       - db
       - rabbitmq
+    restart: always
   cache:
     image: redis:latest
     ports:
